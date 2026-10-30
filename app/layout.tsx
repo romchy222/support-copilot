@@ -1,0 +1,1 @@
+export const metadata={title:"Grand Support Copilot",description:"Поддержка игроков Grand Mobile"}; export default function Layout({children}:{children:React.ReactNode}){return <html lang="ru"><body>{children}</body></html>}

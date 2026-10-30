@@ -1,5 +1,8 @@
-import {env} from 'cloudflare:workers';
-import {getIndex} from '../../lib/corpus-store';
-import {runTriage} from '../../lib/gemini.mjs';
-import {InputError} from '../../lib/triage.mjs';
-export async function POST(request:Request){if(!request.headers.get('content-type')?.includes('application/json'))return Response.json({error:'Ожидается application/json'},{status:415});try{const body=await request.text();if(body.length>100000)return Response.json({error:'Запрос слишком большой'},{status:413});const start=performance.now();const input=JSON.parse(body);const result=await runTriage(input,{index:await getIndex(),apiKey:env.GEMINI_API_KEY,model:env.GEMINI_MODEL,allowExternal:env.GEMINI_EXTERNAL_ENABLED==='true'&&input.data_mode==='synthetic'});return Response.json({...result,latency_ms:Math.round(performance.now()-start)},{headers:{'Cache-Control':'no-store'}})}catch(e){return Response.json({error:e instanceof InputError?e.message:e instanceof SyntaxError?'Некорректный JSON':'Ошибка обработки запроса'},{status:e instanceof InputError||e instanceof SyntaxError?400:500})}}
+import { analyze } from '../../lib/analyze';
+import { readJSON, failure, json } from '../../lib/http';
+export async function POST(request: Request) { try {
+    return json(await analyze(await readJSON(request)));
+}
+catch (error) {
+    return failure(error);
+} }

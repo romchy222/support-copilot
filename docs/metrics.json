@@ -1,0 +1,86 @@
+{
+  "_note": "Только агрегированные метрики. Тексты обращений, хэши и производные выборки датасета Grand Mobile здесь отсутствуют. Источник — scripts/evaluate.mjs, scripts/benchmark-*.mjs, scripts/predict.mjs на синтетических примерах.",
+  "generated_for": "Decentrathon 6.0 · Grand Mobile · Кейс 03 Support Copilot",
+  "scoring_weights": [
+    { "key": "drafts", "label": "Качество черновиков", "weight": 30 },
+    { "key": "classification", "label": "Классификация", "weight": 25 },
+    { "key": "hallucinations", "label": "Отсутствие галлюцинаций", "weight": 20 },
+    { "key": "kk_uz", "label": "Казахский и узбекский", "weight": 15 },
+    { "key": "cost_latency", "label": "Стоимость и скорость", "weight": 10 }
+  ],
+  "validation": {
+    "total": 1000,
+    "errors": 0,
+    "needs_human": 940,
+    "citations": 558,
+    "unknown_citations": 0,
+    "unsafe_drafts": 0,
+    "languages": { "ru": 773, "uz": 114, "und": 78, "kk": 32, "en": 3 },
+    "categories": {
+      "complaint.insult": 231,
+      "complaint.other": 180,
+      "complaint.dm": 156,
+      "complaint.admin": 99,
+      "complaint.invalid": 93,
+      "report.offtopic": 73,
+      "report.question": 48,
+      "report.complaint": 35,
+      "complaint.cheat": 34,
+      "report.help": 27,
+      "complaint.scam": 22,
+      "complaint.rmt_ads": 2
+    },
+    "offline_latency_ms": { "p50": 0.207, "p95": 0.581, "max": 6.313 }
+  },
+  "labeled_control": {
+    "note": "Саморазметка ассистентом, не независимая оценка. p0 и kk в выборке отсутствуют.",
+    "total": 45,
+    "category_correct": 44,
+    "category_accuracy": 0.9778,
+    "priority_macro_f1": 0.75,
+    "priority_confusion": { "p1|p1": 28, "p2|p2": 4, "p3|p3": 13 }
+  },
+  "http_local": {
+    "scope": "Локальный HTTP /triage с эмулятором R2, без внешней модели",
+    "count": 240,
+    "concurrency": 8,
+    "errors": 0,
+    "p50_ms": 226,
+    "p95_ms": 308,
+    "max_ms": 856,
+    "first_request_ms": 856
+  },
+  "http_published": {
+    "scope": "Опубликованный закрытый сайт, синтетические входы, параллельность 2, внешняя модель недоступна (таймауты)",
+    "count": 16,
+    "errors": 0,
+    "p95_ms": 4597
+  },
+  "fault_injection": {
+    "budget_ms": 2500,
+    "rows": [
+      { "scenario": "Зависание хранилища", "p95_ms": 850 },
+      { "scenario": "Зависание дедупликации", "p95_ms": 273 },
+      { "scenario": "Зависание модели", "p95_ms": 2502 },
+      { "scenario": "Квота модели исчерпана", "p95_ms": 10 },
+      { "scenario": "Ошибка хранилища", "p95_ms": 4 }
+    ]
+  },
+  "live_llm_synthetic": {
+    "scope": "scripts/predict.mjs на examples/synthetic-tickets.jsonl, 8 обращений, gemini-3.5-flash-lite, последовательно",
+    "tickets": [
+      { "id": "DEMO-RU-01", "tokens": 995, "cost_usd": 0.0005053, "latency_ms": 1823 },
+      { "id": "DEMO-KK-02", "tokens": 1127, "cost_usd": 0.0006285, "latency_ms": 1060 },
+      { "id": "DEMO-UZ-03", "tokens": 1122, "cost_usd": 0.0005962, "latency_ms": 1145 },
+      { "id": "DEMO-PAY-04", "tokens": 925, "cost_usd": 0.0004469, "latency_ms": 823 },
+      { "id": "DEMO-ACC-05", "tokens": 1064, "cost_usd": 0.0006206, "latency_ms": 960 },
+      { "id": "DEMO-CHEAT-06", "tokens": 992, "cost_usd": 0.0004692, "latency_ms": 914 },
+      { "id": "DEMO-DEDUP-07", "tokens": 840, "cost_usd": 0.0005094, "latency_ms": 1246 },
+      { "id": "DEMO-DEDUP-08", "tokens": 794, "cost_usd": 0.0003944, "latency_ms": 861 }
+    ],
+    "pricing": { "date": "2026-10-30", "input_usd_per_1m": 0.3, "output_usd_per_1m": 2.5 }
+  },
+  "limits": { "cost_usd_per_ticket": 0.002, "p95_ms": 5000 },
+  "tests": { "passed": 59, "failed": 0 }
+}
+

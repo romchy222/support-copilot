@@ -5,6 +5,7 @@ $('.profile').innerHTML = '<span class="avatar">GM</span><div>Grand Mobile<small
 const state = {
   records: [],
   selected: null,
+  detailOpen: false,
   tab: 'all',
   view: 'queue',
   query: '',
@@ -230,7 +231,7 @@ function render() {
     ${[
       ['В очереди', open.length, 'Сохранены на сервере'],
       ['Требуют человека', human.length, 'Решение принимает администратор'],
-      ['Можно ответить автоматически', ready.length, 'После проверки правил безопасности'],
+      ['Готовы к автоответу', ready.length, 'После проверки правил безопасности'],
       ['Обработано', done.length, 'Подтверждено или эскалировано'],
     ]
       .map(
@@ -240,7 +241,7 @@ function render() {
       .join('')}
   </div>
   ${state.error ? `<div class="caution" role="alert">${esc(state.error)}. Попробуйте обновить очередь.</div>` : ''}
-  <section class="desk">
+  <section class="desk ${state.detailOpen ? 'detail-open' : ''}">
     <div class="toolbar">
       <div class="tabs">
         ${[
@@ -251,7 +252,7 @@ function render() {
         ]
           .map(
             ([id, title, n]) =>
-              `<button class="tab ${id === state.tab ? 'selected' : ''}" data-tab="${id}">${title}<span>${n}</span></button>`
+              `<button class="tab ${id === state.tab ? 'selected' : ''}" aria-pressed="${id === state.tab}" data-tab="${id}">${title}<span>${n}</span></button>`
           )
           .join('')}
       </div>
@@ -281,6 +282,7 @@ function render() {
       (b.onclick = () => {
         rememberDraft();
         state.tab = b.dataset.tab;
+        state.detailOpen = false;
         state.queuePage = 1;
         render();
       })
@@ -300,14 +302,14 @@ function renderList() {
       ? allRecords.slice((state.queuePage - 1) * state.queuePageSize, state.queuePage * state.queuePageSize)
       : allRecords;
 
-  if (!allRecords.some(r => r.id === state.selected)) {
+  if (!pageRecords.some(r => r.id === state.selected)) {
     state.selected = pageRecords[0]?.id || allRecords[0]?.id;
   }
 
   $('#list').innerHTML =
     pageRecords
       .map(
-        r => `<button class="ticket ${r.id === state.selected ? 'current' : ''}" data-ticket="${r.id}">
+        r => `<button class="ticket ${r.id === state.selected ? 'current' : ''}" aria-pressed="${r.id === state.selected}" data-ticket="${r.id}">
         <div class="ticket-top">
           <span>#${esc(r.input.ticket_id || short(r.id))} · ${r.input.kind === 'complaint' ? 'Жалоба' : 'Репорт'}</span>
           <span>${date(r.created_at)}</span>
@@ -352,9 +354,11 @@ function renderList() {
       (b.onclick = () => {
         rememberDraft();
         state.selected = b.dataset.ticket;
+        state.detailOpen = true;
+        $('.desk').classList.add('detail-open');
         renderList();
         if (window.matchMedia('(max-width: 768px)').matches) {
-          $('#detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          $('#detail')?.scrollIntoView({ block: 'start' });
         }
       })
   );
@@ -436,7 +440,13 @@ function renderDetail() {
   <div class="action-note" id="save-state">Изменения и решения сохраняются на сервере. Отправка игрокам не подключена к игре.</div>`;
 
   if ($('#back-to-list')) {
-    $('#back-to-list').onclick = () => $('.ticket-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('#back-to-list').onclick = () => {
+      rememberDraft();
+      state.detailOpen = false;
+      $('.desk').classList.remove('detail-open');
+      $('.desk').scrollIntoView({ block: 'start' });
+      document.querySelector('.ticket.current')?.focus({ preventScroll: true });
+    };
   }
 
   const token = result.analysis.usage?.totalTokenCount;
@@ -590,6 +600,7 @@ async function createNew(event) {
     });
     state.records.unshift(record);
     state.selected = record.id;
+    state.detailOpen = true;
     state.tab = 'all';
     state.query = '';
     state.queuePage = 1;

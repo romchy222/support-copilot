@@ -1,3 +1,4 @@
+import { matchesFilters, nextSteps, dirtyRecords } from './workflow-ui.mjs';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 $('.profile').innerHTML = '<span class="avatar">GM</span><div>Grand Mobile<small>Support Copilot</small></div>';
@@ -9,6 +10,7 @@ const state = {
   tab: 'all',
   view: 'queue',
   query: '',
+  filters: { priority: '', lang: '', category: '', server: '' },
   cursor: null,
   loading: true,
   error: null,
@@ -29,7 +31,7 @@ const state = {
 const labels = {
   open: 'В очереди',
   approved: 'Ответ подтверждён',
-  escalated: 'Передано старшему администратору',
+  escalated: 'Передано специалисту',
 };
 const langs = {
   ru: 'Русский',
@@ -50,8 +52,9 @@ const actions = {
   created: 'Создано обращение',
   save: 'Сохранены правки',
   approve: 'Ответ подтверждён',
-  escalate: 'Передано старшему администратору',
+  escalate: 'Передано специалисту',
   reopen: 'Возвращено в очередь',
+  send_test: 'Отправлено в тестовый канал',
 };
 
 function toast(text) {
@@ -97,6 +100,37 @@ function selected() {
 function rememberDraft() {
   const r = selected();
   if (r && $('#draft')) state.drafts.set(r.id, $('#draft').value);
+}
+
+function updateDirtyState() {
+  const records = dirtyRecords(state.records, state.drafts);
+  const bar = $('#draft-status');
+  if (!bar) return;
+  bar.hidden = !records.length;
+  bar.innerHTML = records.length ? `<strong>Не сохранено: ${records.length}</strong><span>Правки хранятся в этой вкладке. Сохраните их перед закрытием.</span>${records.map(r => `<button class="secondary" data-dirty="${esc(r.id)}">Открыть #${esc(r.input.ticket_id || short(r.id))}</button>`).join('')}` : '';
+  bar.querySelectorAll('[data-dirty]').forEach(b => b.onclick = () => {
+    rememberDraft();
+    const r = state.records.find(x => x.id === b.dataset.dirty);
+    state.view = 'queue'; state.query = ''; state.filters = { priority: '', lang: '', category: '', server: '' };
+    state.tab = r.status === 'open' ? 'all' : 'done';
+    state.selected = r.id; state.detailOpen = true;
+    state.queuePage = Math.floor(filtered().findIndex(x => x.id === r.id) / (state.queuePageSize || state.records.length)) + 1;
+    render(); $('#detail')?.scrollIntoView({ block: 'start' });
+  });
+}
+
+function filterControls() {
+  const definitions = [
+    ['priority', 'Приоритет', Object.entries(priorityNames)],
+    ['lang', 'Язык', [...new Set(state.records.map(r => r.result.lang))].sort().map(v => [v, langs[v] || v])],
+    ['category', 'Категория', [...new Map(state.records.map(r => [r.result.category, r.result.analysis.category_title])).entries()].sort((a,b) => a[1].localeCompare(b[1]))],
+    ['server', 'Сервер', [...new Set(state.records.map(r => String(r.result.extracted.server || r.input.server || '')).filter(Boolean))].sort((a,b) => Number(a)-Number(b)).map(v => [v, 'Сервер ' + v])],
+  ];
+  return `<div class="queue-filters">${definitions.map(([key, title, values]) => `<label>${title}<select data-filter="${key}" aria-label="Фильтр ${title.toLowerCase()}"><option value="">Все</option>${values.map(([value, label]) => `<option value="${esc(value)}" ${state.filters[key] === value ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></label>`).join('')}<button class="secondary" id="reset-filters">Сбросить фильтры</button></div>`;
+}
+
+function ticketHistory(record) {
+  return `<details class="ticket-history"><summary>История обращения · ${record.history.length}</summary>${[...record.history].reverse().map(e => `<article class="event"><div><strong>${esc(actions[e.action] || e.action)}</strong><time>${date(e.at)}</time></div><p>${e.actor ? esc(e.actor.name || e.actor.id) : 'Автор не записан'}</p>${e.escalation ? `<p>${esc(e.escalation.team)} · ${esc(e.escalation.assignee)}<br>${esc(e.escalation.reason)}</p>` : ''}${e.previous_draft !== undefined && e.previous_draft !== e.draft ? `<details><summary>Изменения текста</summary><div class="revision"><section><b>До</b><p>${esc(e.previous_draft)}</p></section><section><b>После</b><p>${esc(e.draft)}</p></section></div></details>` : ''}</article>`).join('')}</details>`;
 }
 
 function draft(r) {
@@ -189,6 +223,7 @@ function filtered() {
   return state.records
     .filter(
       r =>
+        matchesFilters(r, state.filters) &&
         (state.tab === 'done' ? r.status !== 'open' : r.status === 'open') &&
         (state.tab !== 'human' || r.result.needs_human) &&
         (state.tab !== 'ready' || !r.result.needs_human) &&
@@ -206,6 +241,7 @@ function render() {
   const done = state.records.filter(r => r.status !== 'open');
 
   $('#navcount').textContent = open.length;
+  updateDirtyState();
   document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === state.view));
 
   if (state.view === 'rules') {
@@ -258,6 +294,7 @@ function render() {
       </div>
       <input class="search" id="search" aria-label="Поиск обращений" placeholder="Поиск по тексту или номеру" value="${esc(state.query)}">
     </div>
+    ${filterControls()}
     <div class="panels">
       <div class="ticket-list">
         <div class="list-caption"><span>ПРИОРИТЕТ → ВРЕМЯ</span><span>${state.loading ? 'Загрузка…' : ''}</span></div>
@@ -270,6 +307,13 @@ function render() {
   </section>`;
 
   $('#refresh').onclick = () => load();
+  document.querySelectorAll('[data-filter]').forEach(el => el.onchange = () => {
+    rememberDraft(); state.filters[el.dataset.filter] = el.value; state.queuePage = 1; state.detailOpen = false;
+    $('.desk').classList.remove('detail-open'); renderList();
+  });
+  $('#reset-filters').onclick = () => {
+    rememberDraft(); state.filters = { priority: '', lang: '', category: '', server: '' }; state.query = ''; state.queuePage = 1; state.detailOpen = false; render();
+  };
   $('#new-ticket').onclick = () => openNewTicket();
   $('#search').oninput = e => {
     rememberDraft();
@@ -396,6 +440,7 @@ function renderDetail() {
   const result = r.result;
   const cited = result.analysis.cited_sources || [];
   const readOnly = r.status !== 'open';
+  const guidance = nextSteps(r);
   $('#detail').innerHTML = `<div class="detail-head">
     <div class="detail-head-left">
       <button type="button" class="secondary back-to-list" id="back-to-list">↑ К очереди</button>
@@ -412,6 +457,8 @@ function renderDetail() {
     <span>${date(r.created_at)}</span>
   </div>
   <div class="divider"></div>
+  <section class="next-step"><h3>${esc(guidance.title)}</h3><ul>${guidance.items.map(item => `<li>${esc(item)}</li>`).join('')}</ul></section>
+  ${r.status === 'escalated' ? `<section class="handoff"><strong>Передано на рассмотрение</strong>${r.escalation ? `<p>Команда: ${esc(r.escalation.team)}<br>Ответственный: ${esc(r.escalation.assignee)}<br>Передано: ${date(r.escalation.at)}</p><p>Причина: ${esc(r.escalation.reason)}</p>` : '<p>Команда, ответственный и причина не записаны для этой старой передачи.</p>'}<small>Запись в очереди Copilot. Внешнее уведомление не отправлялось.</small></section>` : ''}
   <div class="section-label">ПЕРЕПИСКА</div>
   ${r.input.messages
     .map(
@@ -437,7 +484,11 @@ function renderDetail() {
     }
     <button class="secondary" id="export">Экспорт JSON</button>
   </div>
-  <div class="action-note" id="save-state">Изменения и решения сохраняются на сервере. Отправка игрокам не подключена к игре.</div>`;
+  <div class="save-state ${draft(r) !== r.draft ? 'is-dirty' : ''}" id="save-state" role="status">${draft(r) !== r.draft ? '● Не сохранено' : '✓ Черновик сохранён на сервере'}</div>
+  <div class="delivery"><span><b>Тестовый канал</b><br>Реальная отправка игроку не подключена</span><button class="secondary" id="copy-reply">Скопировать ответ</button><button class="primary" id="test-send" ${r.status !== 'approved' || r.delivery ? 'disabled' : ''}>${r.delivery ? 'Тест отправлен' : 'Отправить в тестовый канал'}</button></div>
+  ${r.status !== 'approved' ? '<p class="form-note">Для тестовой отправки сначала подтвердите ответ.</p>' : ''}
+  ${r.delivery ? `<div class="receipt"><strong>Тестовый API принял ответ</strong><p>Квитанция: ${esc(r.delivery.receipt_id)}<br>${date(r.delivery.at)} · Игроку не доставлено</p></div>` : ''}
+  ${ticketHistory(r)}`;
 
   if ($('#back-to-list')) {
     $('#back-to-list').onclick = () => {
@@ -460,19 +511,17 @@ function renderDetail() {
   <div class="section-label">ИЗВЛЕЧЁННЫЕ ДАННЫЕ</div>
   <div class="facts">
     ${[
-      ['Категория', result.category],
+      ['Категория', result.analysis.category_title],
       ['Язык', langs[result.lang]],
       ['Ник обвиняемого', result.extracted.nickname || 'Не указан'],
       ['Вложения', result.extracted.has_evidence ? 'Есть · не проверены' : 'Не указаны'],
       ['Сервер', result.extracted.server || 'Не указан'],
       ['Спам / дубликат', result.is_spam_or_duplicate ? 'Есть признаки' : 'Не обнаружен'],
-      ['Обработка', result.latency_ms + ' мс'],
-      ['Токены', token ?? 'Внешний вызов не завершён'],
-      ['Источник правил', (result.analysis.corpus_documents || 0) + ' фрагментов'],
     ]
       .map(([key, value]) => `<div class="fact"><span>${key}</span><b>${esc(value)}</b></div>`)
       .join('')}
   </div>
+  <details class="technical"><summary>Технические сведения</summary><p>Категория: ${esc(result.category)}<br>Обработка: ${esc(result.latency_ms)} мс<br>Токены: ${esc(token ?? 'Внешний вызов не завершён')}<br>База: ${esc(result.analysis.corpus_documents || 0)} фрагментов</p></details>
   <div class="section-label">ИСПОЛЬЗОВАННЫЕ ПРАВИЛА</div>
   ${
     cited.length
@@ -491,10 +540,21 @@ function renderDetail() {
     state.drafts.set(r.id, e.target.value);
     autoResizeDraft();
     $('#save-state').textContent =
-      e.target.value === r.draft ? 'Черновик сохранён на сервере.' : 'Есть несохранённые изменения';
+      e.target.value === r.draft ? '✓ Черновик сохранён на сервере' : '● Не сохранено';
+    $('#save-state').classList.toggle('is-dirty', e.target.value !== r.draft);
+    updateDirtyState();
   };
   if ($('#save')) $('#save').onclick = () => saveAction('save');
-  if ($('#escalate')) $('#escalate').onclick = () => saveAction('escalate');
+  if ($('#escalate')) $('#escalate').onclick = () => {
+    rememberDraft();
+    modal('<h2>Передать специалисту</h2><form id="escalation-form"><label for="escalation-team">Команда</label><select id="escalation-team"><option>Старшая администрация</option><option>Поддержка платежей</option><option>Безопасность аккаунтов</option></select><label for="escalation-assignee">Ответственный или дежурная смена</label><input id="escalation-assignee" required maxlength="160" placeholder="Имя администратора или название смены"><label for="escalation-reason">Причина и что нужно проверить</label><textarea id="escalation-reason" required maxlength="2000"></textarea><p class="form-note">Передача фиксируется в Copilot. Внешнее уведомление не отправляется.</p><p id="escalation-error" role="alert"></p><button class="primary" type="submit">Передать обращение</button></form>');
+    $('#escalation-form').onsubmit = e => {
+      e.preventDefault();
+      const escalation = { team: $('#escalation-team').value, assignee: $('#escalation-assignee').value.trim(), reason: $('#escalation-reason').value.trim() };
+      if (!escalation.assignee || !escalation.reason) { $('#escalation-error').textContent = 'Укажите ответственного и причину'; return; }
+      saveAction('escalate', false, { escalation });
+    };
+  };
   if ($('#reopen')) $('#reopen').onclick = () => saveAction('reopen');
   if ($('#approve')) {
     $('#approve').onclick = () => {
@@ -512,6 +572,21 @@ function renderDetail() {
     };
   }
   $('#export').onclick = () => download(r);
+  $('#test-send').onclick = async () => {
+    if (state.busy) return;
+    state.busy = true;
+    const button = $('#test-send'); button.disabled = true; button.textContent = 'Отправляю в тестовый канал…';
+    try {
+      const response = await api('/api/test-delivery', { method: 'POST', body: JSON.stringify({ ticket_id: r.id, version: r.version, text: r.draft }) });
+      state.records[state.records.findIndex(x => x.id === r.id)] = response.record;
+      renderDetail(); toast('Тестовая квитанция сохранена. Игроку не отправлено.');
+    } catch (error) { toast(error.message); button.disabled = false; button.textContent = 'Повторить тестовую отправку'; }
+    finally { state.busy = false; }
+  };
+  $('#copy-reply').onclick = async () => {
+    try { await navigator.clipboard.writeText(draft(r)); toast('Ответ скопирован. Отправьте его в игровом канале.'); }
+    catch { $('#draft').focus(); $('#draft').select(); toast('Выделен текст ответа. Скопируйте его вручную.'); }
+  };
   document.querySelectorAll('[data-source]').forEach(
     b =>
       (b.onclick = () => {
@@ -521,25 +596,40 @@ function renderDetail() {
   );
 }
 
-async function saveAction(action, reviewed = false) {
+async function saveAction(action, reviewed = false, extra = {}) {
   if (state.busy) return;
   rememberDraft();
   const r = selected();
   state.busy = true;
+  const pendingButtons = [...document.querySelectorAll('#detail .actions button, #modal button')];
+  pendingButtons.forEach(button => button.disabled = true);
+  const pendingDraft = $('#draft');
+  if (pendingDraft) pendingDraft.disabled = true;
   try {
     const saved = await api('/api/tickets/' + encodeURIComponent(r.id), {
       method: 'POST',
-      body: JSON.stringify({ action, version: r.version, draft: draft(r), reviewed }),
+      body: JSON.stringify({ ...extra, action, version: r.version, draft: draft(r), reviewed }),
     });
     state.records[state.records.findIndex(x => x.id === r.id)] = saved;
     state.drafts.delete(r.id);
+    if (action !== 'save') {
+      state.tab = action === 'reopen' ? 'all' : 'done';
+      state.query = '';
+      state.filters = { priority: '', lang: '', category: '', server: '' };
+      state.queuePage = Math.floor(filtered().findIndex(x => x.id === saved.id) / (state.queuePageSize || state.records.length)) + 1;
+      state.detailOpen = true;
+    }
     if ($('#modal').open) $('#modal').close();
     toast(actions[action]);
     render();
   } catch (error) {
     toast(error.message);
+    const field = $('#escalation-error') || $('#approve-error');
+    if (field) field.textContent = error.message;
   } finally {
     state.busy = false;
+    pendingButtons.forEach(button => button.disabled = false);
+    if (pendingDraft) pendingDraft.disabled = false;
   }
 }
 
@@ -603,6 +693,7 @@ async function createNew(event) {
     state.detailOpen = true;
     state.tab = 'all';
     state.query = '';
+    state.filters = { priority: '', lang: '', category: '', server: '' };
     state.queuePage = 1;
     $('#modal').close();
     render();
@@ -645,7 +736,7 @@ function renderHistory() {
       pageEvents
         .map(
           e =>
-            `<div class="history-row"><span class="eyebrow">${date(e.at)}</span><b>#${esc(e.ticket_id || short(e.id))}</b><span>${actions[e.action] || esc(e.action)}</span>${e.previous_draft && e.previous_draft !== e.draft ? '<span class="tag green">Текст изменён</span>' : ''}</div>`
+            `<div class="history-row"><span class="eyebrow">${date(e.at)}</span><b>#${esc(e.ticket_id || short(e.id))}</b><span>${actions[e.action] || esc(e.action)}</span><span>${e.actor ? esc(e.actor.name || e.actor.id) : 'Автор не записан'}</span>${e.escalation ? `<span>${esc(e.escalation.team)} · ${esc(e.escalation.assignee)}</span>` : ''}${e.previous_draft && e.previous_draft !== e.draft ? '<span class="tag green">Текст изменён</span>' : ''}</div>`
         )
         .join('') || '<div class="empty">История пока пуста</div>'
     }
@@ -798,7 +889,8 @@ document.querySelectorAll('[data-view]').forEach(
 );
 
 window.addEventListener('beforeunload', event => {
-  if (state.records.some(r => state.drafts.has(r.id) && draft(r) !== r.draft)) {
+  rememberDraft();
+  if (dirtyRecords(state.records, state.drafts).length) {
     event.preventDefault();
     event.returnValue = '';
   }

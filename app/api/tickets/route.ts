@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { listTickets, createTicket } from '../../../lib/ticket-store.mjs';
 import { analyze } from '../../../lib/analyze';
 import { readJSON, failure, json } from '../../../lib/http';
+import { requestActor } from '../../../lib/request-actor';
 export async function GET(request: Request) { try {
     if (!env.BUCKET)
         throw new Error('Storage unavailable');
@@ -13,7 +14,7 @@ catch (error) {
 export async function POST(request: Request) { try {
     if (!env.BUCKET)
         throw new Error('Storage unavailable');
-    return json(await createTicket(env.BUCKET, await readJSON(request), analyze), 201);
+    return json(await createTicket(env.BUCKET, await readJSON(request), analyze, { actor: requestActor(request) }), 201);
 }
 catch (error) {
     return failure(error);

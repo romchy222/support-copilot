@@ -11,3 +11,23 @@ test('approve requires explicit human review; status transitions are stored',asy
 test('dedup requires same player, issue and one-hour window',async()=>{const bucket=new Bucket;assert.equal((await registerDedup(bucket,{...input,ticket_id:'a'},1000)).duplicate,null);assert.equal((await registerDedup(bucket,{...input,ticket_id:'b',created_at:'2026-10-30T10:30:00Z'},1001)).duplicate.id,'a');assert.equal((await registerDedup(bucket,{...input,ticket_id:'c',created_at:'2026-10-30T12:00:00Z'},1002)).duplicate,null);assert.equal((await registerDedup(bucket,{...input,reporter_hash:'other'},1003)).duplicate,null)});
 test('paid estimate does not claim verified free billing',()=>{const cost=estimateUsage('gemini-3.5-flash-lite',{promptTokenCount:1000,candidatesTokenCount:200});assert.equal(cost.cost_usd,null);assert.equal(cost.estimated_paid_cost_usd,.0008)});
 test('dedup works when tickets have no external ticket_id',async()=>{const bucket=new Bucket;await registerDedup(bucket,input,1000);assert.ok((await registerDedup(bucket,{...input,created_at:'2026-10-30T10:05:00Z'},1001)).duplicate)});
+
+test('escalation persists responsible team, reason and trusted actor, and reopen clears active assignment',async()=>{
+ const bucket=new Bucket,record=await createTicket(bucket,input,analyze),actor={id:'admin-1',name:'Admin'};
+ await assert.rejects(()=>updateTicket(bucket,record.id,{version:1,action:'escalate',draft:record.draft}),/ответственного/);
+ const escalation={team:'Платежи',assignee:'Смена 2',reason:'Проверить чек'};
+ const saved=await updateTicket(bucket,record.id,{version:1,action:'escalate',draft:record.draft,escalation,actor:{id:'spoofed'}},{actor});
+ assert.equal(saved.status,'escalated');assert.equal(saved.escalation.assignee,'Смена 2');assert.deepEqual(saved.history.at(-1).actor,actor);
+ const reopened=await updateTicket(bucket,record.id,{version:2,action:'reopen',draft:record.draft});
+ assert.equal(reopened.escalation,null);assert.deepEqual(reopened.history[1].escalation,escalation);
+});
+test('test delivery only sends approved text, persists a receipt and is idempotent',async()=>{
+ const bucket=new Bucket,record=await createTicket(bucket,input,analyze);
+ const send=(version,text=record.draft)=>updateTicket(bucket,record.id,{version,action:'send_test',draft:text});
+ await assert.rejects(()=>send(1),/подтвердите/);
+ await updateTicket(bucket,record.id,{version:1,action:'approve',draft:record.draft,reviewed:true});
+ await assert.rejects(()=>send(2,'Unapproved edit'),/подтверждённый/);
+ const sent=await send(2);assert.equal(sent.status,'approved');assert.equal(sent.delivery.mode,'test');assert.equal(sent.delivery.text,record.draft);
+ const retry=await send(2);assert.equal(retry.delivery.receipt_id,sent.delivery.receipt_id);assert.equal(retry.version,sent.version);assert.equal(retry.history.filter(e=>e.action==='send_test').length,1);
+ const reopened=await updateTicket(bucket,record.id,{version:sent.version,action:'reopen',draft:record.draft});assert.equal(reopened.delivery,null);assert.ok(reopened.history.find(e=>e.delivery));
+});

@@ -1,5 +1,6 @@
 import { matchesFilters, nextSteps, dirtyRecords } from './workflow-ui.mjs';
 import { suggestTemplates } from './template-clusters.mjs';
+import { confidencePresentation } from './confidence-ui.mjs';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 $('.profile').innerHTML = '<span class="avatar">GM</span><div>Grand Mobile<small>Support Copilot</small></div>';
@@ -505,11 +506,11 @@ function renderDetail() {
   }
 
   const token = result.analysis.usage?.totalTokenCount;
+  const confidenceView = confidencePresentation(result);
   $('#insights').innerHTML = `<div class="insight-title">✧ Анализ Copilot</div>
   <div class="confidence">
-    <div class="confidence-head">Оценка уверенности <strong>${Math.round(result.confidence * 100)}%</strong></div>
-    <div class="bar"><div style="width:${Math.round(result.confidence * 100)}%"></div></div>
-    <p>Не калибрована · не подтверждает факты</p>
+    <div class="confidence-head">${esc(confidenceView.title)} <strong>${esc(confidenceView.value)}</strong></div>
+    <p>${esc(confidenceView.note)}</p>
   </div>
   <p class="baseline-note">${esc(llmStatus(result))}</p>
   <div class="section-label">ИЗВЛЕЧЁННЫЕ ДАННЫЕ</div>

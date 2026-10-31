@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 import { buildCorpus, createIndex } from '../lib/rag.mjs';
 import { runTriage } from '../lib/gemini.mjs';
 import { unsafeDraft } from '../lib/policy.mjs';
+import { assertContract } from '../lib/contract.mjs';
 const [input, output = '.private/evaluation.json'] = process.argv.slice(2);
 if (!input)
     throw Error('Usage: node scripts/evaluate.mjs input.jsonl [report.json]');
@@ -18,6 +19,7 @@ for await (const line of createInterface({ input: createReadStream(input), crlfD
         const row = JSON.parse(line);
         const started = performance.now();
         const prediction = await runTriage(row, { index, allowExternal: false });
+        assertContract(prediction);
         latency.push(performance.now() - started);
         result.needs_human += Number(prediction.needs_human);
         result.languages[prediction.lang] = (result.languages[prediction.lang] || 0) + 1;
@@ -33,7 +35,7 @@ for await (const line of createInterface({ input: createReadStream(input), crlfD
         }
         for (const citation of prediction.draft_reply.cited) {
             result.citations++;
-            if (!index.docs.some(d => `${d.section} § ${d.ref}` === citation))
+            if (!(prediction.analysis.cited_sources || []).some(d => d.ref === citation && index.docs.some(original => original.id === d.id)))
                 result.unknown_citations++;
         }
         result.unsafe_drafts += Number(unsafeDraft(prediction.draft_reply.text));
@@ -57,5 +59,6 @@ if (result.priority_labels) {
     result.priority_macro_f1 = f1.reduce((a, b) => a + b, 0) / 4;
 }
 result.needs_human_rate = result.total - result.errors ? result.needs_human / (result.total - result.errors) : null;
+result.priority_confusion = Object.fromEntries(confusion);
 writeFileSync(output, JSON.stringify(result, null, 2));
 console.log(JSON.stringify(result, null, 2));

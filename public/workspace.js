@@ -1,4 +1,5 @@
 import { matchesFilters, nextSteps, dirtyRecords } from './workflow-ui.mjs';
+import { suggestTemplates } from './template-clusters.mjs';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 $('.profile').innerHTML = '<span class="avatar">GM</span><div>Grand Mobile<small>Support Copilot</small></div>';
@@ -713,12 +714,7 @@ function renderHistory() {
   const events = state.records
     .flatMap(r => r.history.map(e => ({ ...e, id: r.id, ticket_id: r.input.ticket_id })))
     .sort((a, b) => b.at.localeCompare(a.at));
-  const groups = new Map();
-  for (const r of state.records.filter(r => r.status === 'approved')) {
-    const key = r.result.category;
-    groups.set(key, [...(groups.get(key) || []), r]);
-  }
-  const suggestions = [...groups.entries()].filter(([, rs]) => rs.length >= 3);
+  const suggestions = suggestTemplates(state.records);
 
   const effectiveSize = state.historyPageSize > 0 ? state.historyPageSize : Math.max(events.length, 1);
   const totalPages = Math.max(1, Math.ceil(events.length / effectiveSize));
@@ -747,7 +743,7 @@ function renderHistory() {
   </div>
   ${
     suggestions.length
-      ? `<div class="full-page" style="margin-top:20px"><h2>Кандидаты в шаблоны</h2><p class="subtitle">Повторяющиеся категории с тремя и более подтверждёнными ответами. Перед использованием требуется редакторская проверка.</p>${suggestions.map(([code, rs]) => `<article class="message"><b>${esc(code)} · ${rs.length} ответов</b><p>${esc(rs[0].draft)}</p></article>`).join('')}</div>`
+      ? `<div class="full-page" style="margin-top:20px"><h2>Кандидаты в шаблоны</h2><p class="subtitle">Кластеры похожих обращений и согласованных ответов: минимум 3 подтверждения. Имена и значения заменены переменными. Перед использованием проверьте текст и оставшиеся личные сведения.</p>${suggestions.map(s => `<article class="message"><b>${esc(s.category)} · ${esc(s.language.toUpperCase())} · ${s.count} ответов</b><p>${esc(s.text)}</p><small>Минимальное сходство обращений: ${s.minimum_similarity}% · Переменные: ${s.variables.map(esc).join(', ') || 'нет'}</small></article>`).join('')}</div>`
       : ''
   }`;
 

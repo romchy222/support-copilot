@@ -2,8 +2,11 @@
 import assert from 'node:assert/strict';
 const origin = process.argv[2];
 if (!origin || !/^http:\/\/(?:127\.0\.0\.1|localhost):\d+$/.test(origin)) throw Error('Pass an explicit local origin');
+const login = await fetch(origin + '/signin-with-chatgpt?return_to=%2F', {redirect:'manual'});
+const cookie = login.headers.get('set-cookie')?.split(';')[0];
+assert.ok(cookie, 'Local Sites sign-in must return a session cookie');
 async function post(path, body, expected = 200) {
-  const response = await fetch(origin + path, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const response = await fetch(origin + path, { method: 'POST', headers: {'Content-Type':'application/json', Cookie:cookie}, body: JSON.stringify(body) });
   const value = await response.json();
   assert.equal(response.status, expected, JSON.stringify(value));
   return value;
@@ -29,4 +32,5 @@ do {
 } while(cursor && !persisted);
 assert.equal(persisted.delivery.receipt_id,first.receipt.receipt_id);
 assert.equal(persisted.history.filter(e=>e.action==='send_test').length,1);
+assert.ok(persisted.history.every(e=>e.actor?.id));
 console.log('Workflow HTTP smoke passed: save, escalation, reopen, approval, test delivery, retry, persisted history');

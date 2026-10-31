@@ -75,6 +75,9 @@ async function api(path, options = {}) {
   } catch {
     throw new Error('Сервер вернул некорректный ответ');
   }
+  if (response.status === 401) {
+    $('#signin-notice').hidden = false;
+  }
   if (!response.ok) throw new Error(data.error || `Ошибка ${response.status}`);
   return data;
 }

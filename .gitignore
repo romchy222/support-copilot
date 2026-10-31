@@ -47,6 +47,7 @@ yarn-error.log*
 # Challenge datasets and generated predictions
 /data/
 *.jsonl
+!examples/*.jsonl
 *.jsonl.gz
 *.tgz
 *.tar.gz

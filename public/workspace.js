@@ -901,7 +901,7 @@ api('/api/corpus')
   .then(config => {
     state.config = config;
     $('.demo').textContent =
-      config.loaded && config.gemini_configured ? 'Gemini + RAG · приватная очередь' : 'RAG · локальный режим';
+      config.loaded && config.llm_configured ? 'LLM + RAG · приватная очередь' : 'RAG · локальный режим';
     $('.date').textContent = new Date().toLocaleDateString('ru-RU', {
       timeZone: 'Asia/Qyzylorda',
       day: 'numeric',

@@ -9,3 +9,17 @@ test('unsafe promised punishment is rejected',()=>assert.throws(()=>validateGene
 test('external data gate blocks calls',async()=>{const r=await runTriage(input,{index,apiKey:'fake',fetcher:()=>{throw Error('network should not run')}});assert.equal(r.analysis.llm_status,'external_processing_disabled')});
 test('long source chunks preserve every non-whitespace character',()=>{const text='x'.repeat(4501);const corpus=buildCorpus({rules:{rules:[{id:1,category:'Rules',text,points:[{ref:'1.1',text}]}]},taxonomy:{categories:[]}});assert.equal(corpus.documents.map(d=>d.text).join(''),text)});
 
+
+test('custom API uses bearer chat completions and validates grounded output',async()=>{
+ let called=false;
+ const result=await runTriage(input,{index,apiKey:'custom-test-key',model:'vendor/model',provider:'openai-compatible',allowExternal:true,cache:false,fetcher:async(url,options)=>{
+  called=true;assert.equal(url,'https://myapi.creitingameplays.com/v1/chat/completions');assert.equal(options.headers.Authorization,'Bearer custom-test-key');
+  const body=JSON.parse(options.body);assert.equal(body.model,'vendor/model');assert.equal(body.messages[0].role,'system');assert.ok(!options.body.includes('Arman_Petrov'));
+  return {ok:true,json:async()=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify({l:good.lang,c:0,p:2,t:good.text,s:0,q:good.quotes[0].quote,h:true,v:.8})}}],usage:{prompt_tokens:100,completion_tokens:30}})};
+ }});
+ assert.equal(called,true);assert.equal(result.analysis.llm_status,'generated');assert.equal(result.analysis.engine,'bm25-llm-rag');assert.equal(result.analysis.estimated_paid_cost_usd,null);
+});
+test('custom API auth failure falls back safely',async()=>{
+ const result=await runTriage(input,{index,apiKey:'invalid',model:'test-model',provider:'openai-compatible',allowExternal:true,cache:false,fetcher:async()=>({ok:false,status:401})});
+ assert.equal(result.analysis.llm_status,'llm_auth_error');assert.equal(result.needs_human,true);
+});
